@@ -54,7 +54,10 @@ the pipeline via ``epicc run --samples your_samples.tsv``.
   - HTTP(S) URL to FASTQ, BAM, or bedMethyl file
   - Local BAM path (for ``dmC`` or ``aligned_bams`` mode)
 
-- **Read_layout**: ``PE`` for paired-end data or ``SE`` for single-end data.
+- **Read_layout**: ``PE`` for paired-end data or ``SE`` for single-end data. For SRA
+  accessions this must match the run's real layout: the download rule checks what
+  ``fasterq-dump`` produced and stops with the accession name if the two disagree,
+  rather than carrying an empty FASTQ through mapping.
 
 - **IP_target**: Required for ChIP and CUT&x assays. The antibody target
   (e.g. ``H3K9me2``, ``TB1``) for IP samples, or the control type
