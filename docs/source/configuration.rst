@@ -448,7 +448,6 @@ The following profiles are included under ``profiles/``:
 - ``default/`` — workflow-level per-rule resource and thread defaults (used automatically)
 - ``slurm/`` — SLURM cluster (sbatch) template
 - ``uge/`` — UGE/SGE cluster (qsub) template
-- ``elzar/`` — SLURM example tuned for the CSHL cluster
 
 Pass the cluster profile via ``epicc run --profile profiles/slurm``. If
 ``--profile`` and ``--cores`` are both omitted, ``epicc`` uses

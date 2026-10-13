@@ -14,7 +14,6 @@ Output Structure
 	├── Help/			# Help files (e.g. Structural_RNAs_Rfam.md, Gene_Ontology.md)
 	├── profiles/
 	│	├── default/		# Workflow-level per-rule resource/thread defaults
-	│	├── elzar/		# Example SLURM profile tuned for the CSHL cluster
 	│	├── slurm/		# Template to run the pipeline on a SLURM cluster
 	│	└── uge/		# Template to run the pipeline on a UGE cluster (qsub)
 	├── tools/
