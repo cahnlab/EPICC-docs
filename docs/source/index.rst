@@ -20,10 +20,8 @@ Features
 
 - **Multiple Data Types Support**:
 
-  - Histone ChIP-seq (broad and narrow peaks)
-  - Transcription factor ChIP-seq
-  - CUT&RUN (broad and narrow peak variants)
-  - CUT&Tag (broad and narrow peak variants)
+  - ChIP-seq: histone marks (broad peaks) and transcription factors (narrow peaks)
+  - CUT&RUN and CUT&Tag (broad or narrow peak calling)
   - ATAC-seq
   - RNA-seq
   - RAMPAGE
@@ -42,11 +40,13 @@ Features
 
 - **Flexible Configuration**:
 
-  - Self-contained local HTML builder (``tools/epicc-builder.html``) to build and validate sample sheets and options files — open directly in a browser, no internet connection required
+  - Local HTML builder (``tools/epicc-builder.html``) to build and validate sample sheets and options files — open directly in a browser (runs locally; loads its table and YAML libraries from a CDN)
   - Customizable mapping parameters
   - Configurable analysis options
   - Resource management
   - Parallel processing
+  - One ``epicc`` command-line wrapper (``run``, ``validate``, ``output``, ``unlock``, ``perf``, ``clean``, ``init-profile``) with cluster profiles for SLURM and UGE
+  - Map one sample to several reference genomes
 
 Contents
 --------
