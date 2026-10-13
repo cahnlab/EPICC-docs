@@ -8,15 +8,15 @@ Output Structure
 
 ::
 
-	epigeneticbutton/
+	EPICC/
 	├── config/			# Main options file and recommended location for sample files and target files
 	├── data/			# Test material and examples (e.g. zm_structural_RNAs.fa.gz)
 	├── Help/			# Help files (e.g. Structural_RNAs_Rfam.md, Gene_Ontology.md)
 	├── profiles/
 	│	├── default/		# Workflow-level per-rule resource/thread defaults
-	│	├── geno/		# Example profile for additional scheduler types
-	│	├── slurm/		# Config file to run the pipeline on a SLURM cluster
-	│	└── uge/		# Config file to run the pipeline on a UGE cluster (qsub)
+	│	├── elzar/		# Example SLURM profile tuned for the CSHL cluster
+	│	├── slurm/		# Template to run the pipeline on a SLURM cluster
+	│	└── uge/		# Template to run the pipeline on a UGE cluster (qsub)
 	├── tools/
 	│	└── epicc-builder.html	# Self-contained HTML5 sample sheet and options builder
 	├── workflow/
@@ -50,9 +50,16 @@ ChIP-seq, CUT&RUN, and CUT&Tag
 ===============================
 
 ChIP-seq (histone marks and transcription factors), CUT&RUN, and CUT&Tag all
-share the ``ChIP/`` output directory. Assay types ``ChIP_broad``,
-``ChIP_narrow``, ``CUT_RUN_broad``, ``CUT_RUN_narrow``, ``CUT_TAG_broad``, and
-``CUT_TAG_narrow`` all route here.
+share the ``ChIP/`` output directory. Samples with Assay ``ChIP``, ``CUT_RUN``
+or ``CUT_TAG`` all route here. In analysis-level file and sample names the
+assay is combined with the ``Peak_type`` (e.g. ``ChIP_broad__WT__H3K9me2__Spombe``).
+
+Per-replicate files up to and including trimming are named with the bare
+``<Sample_ID>``. From alignment onward the reference genome is part of the name,
+so per-replicate files use ``<Sample_ID>__<ref_genome>`` (e.g.
+``final__WT_H3K9me2_rep1__ColCEN.bam``); this is what lets one sample be mapped
+to several genomes without collisions. Where a path below shows ``<Sample_ID>``
+for a post-alignment file, read it as ``<Sample_ID>__<ref_genome>``.
 
 
 Output tree
@@ -171,7 +178,7 @@ Performed with IDR.
 Motifs
 ++++++
 
-Performed with the MEME suite. Available for ``ChIP_narrow`` samples (TF peaks).
+Performed with the MEME suite. Available for narrow-peak assays: ``ChIP``, ``CUT_RUN`` and ``CUT_TAG`` samples with ``Peak_type`` ``narrow`` (e.g. TF peaks), and ATAC. Enabled by default (``motifs: true``).
 
 - Full output from selected peaks (and IDR peaks if available) for each sample::
 
@@ -536,7 +543,8 @@ Performed with Bismark
 Differentially methylated regions analysis
 ++++++++++++++++++++++++++++++++++++++++++
 
-Performed with DMRcaller. One set of DMR output files is produced for each
+Performed with metilene (default) or DMRcaller, selected by ``dmr_caller``. One
+set of DMR output files is produced for each
 context listed in ``methylation_contexts`` (default: CG, CHG, CHH; see
 :ref:`Configuration <configuration>` for details).
 
@@ -587,6 +595,12 @@ Heatmaps and metaplots
 ++++++++++++++++++++++
 
 Performed with Deeptools.
+
+- Each sample is labelled with its Levels and mark (e.g. ``Col0_seedling_mCG``).
+  When two assays profile the same mark from the same Levels (e.g. WGBS and PBAT,
+  or ChIP and CUT_TAG), the colliding labels get the assay appended (e.g.
+  ``Col0_seedling_mCG_PBAT``). Colours stay keyed on Levels, so such samples
+  share a colour but not a name.
 
 - Heatmaps and metaplots will be performed on all genes in the reference genome, and on all TEs in the TE file provided if optional TE analysis is selected.
 - Three sets of heatmaps and metaplots will be generated with a corresponding prefix, aligning all regions on their Transcription Start Sites (*tss*), Transcription End sites (*tes*) and scaling all regions to the same lenght (*regions*) (used for examples below).
