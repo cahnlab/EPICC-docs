@@ -410,7 +410,7 @@ Mapping statistics
 	results/combined/plots/srna_sizes_stats_<analysis_name>_sRNA.pdf # all sizes found in the raw data
 	results/combined/plots/srna_sizes_stats_zoom_<analysis_name>_sRNA.pdf # zoom to chosen sizes (default 21 to 24nt)
 
-- Example::
+- Example:
 
 .. figure:: images/srna_sizes_stats_epicc_sRNA.png
    :alt: srna_sizes_stats_epicc_sRNA
@@ -629,7 +629,7 @@ Performed with Deeptools.
 
 .. _fig-heatmap-deeptools:
 
-- Examples::
+- Examples:
 
 .. figure:: images/Heatmap__regions__most__epicc__ColCEN__all_genes.png
    :alt: Heatmap__regions__most__epicc__ColCEN__all_genes
@@ -664,7 +664,7 @@ Performed with Deeptools.
 
 .. _fig-metaplot-deeptools:
 
-- Examples::
+- Examples:
 
 .. figure:: images/Profile__tss__mC__epicc__ColCEN__all_genes.png
    :alt: Profile__tss__mC__epicc__ColCEN__all_genes
@@ -690,7 +690,7 @@ Performed with Gviz.
 
 	results/combined/plots/Browser_full_chromosomes__all__epicc__ColCEN.pdf # Browser of all the samples on full-length chromsomes
 
-- Example::
+- Example:
 
 .. figure:: images/Browser_full_chromosomes__all__epicc__ColCEN.png
    :alt: Browser_full_chromosomes__all__epicc__ColCEN
@@ -704,7 +704,7 @@ Performed with Gviz.
 
 .. _fig-browser-plot:
 
-- Example::
+- Example:
 
 .. figure:: images/Browser_DDM1.png
    :alt: Browser_DDM1

@@ -404,7 +404,7 @@ Output options
 ==============
 
 Default parameters
-^^^^^^^^^^^^^^^^^^
+------------------
 
 - **Full analysis**:
   When ``false``, only mapping and bigwig generation occur. When ``true``
@@ -458,10 +458,10 @@ Default parameters
 
 
 Configuration Options
-^^^^^^^^^^^^^^^^^^^^^
+---------------------
 
 Main output options
-~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^
 
 - ``full_analysis``: When ``false``, only mapping and bigwigs are produced.
   When ``true`` (default), single-data and combined analyses are also run.
@@ -478,7 +478,7 @@ Main output options
   sample is represented by its merged replicates track.
 
 Intermediate input formats
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - ``trimmed_fastqs``: When ``false`` (default), trimming is performed from
   raw FASTQs. Set to ``true`` if pre-trimmed FASTQs are provided.
@@ -498,7 +498,7 @@ Intermediate input formats
   3. Run normally again.
 
 ChIP Mapping Parameters
-~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^
 
 Set via ``chip_mapping_strategy`` in the options file:
 
@@ -508,7 +508,7 @@ Set via ``chip_mapping_strategy`` in the options file:
 - ``all``: Relaxed mapping parameters
 
 DMRs parameters
-~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^
 
 DNA methylation data is analyzed per context. The active contexts are
 controlled by ``methylation_contexts`` (default: ``["CG", "CHG", "CHH"]``).
@@ -545,7 +545,7 @@ A custom parameter sweep mode is available. Toggle ``custom_script_dmrs: true``
 in the options file to use it.
 
 In-line customization
-~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^
 
 Any configuration option can be overridden on the command line by passing it
 after ``--`` to ``epicc run``, using Snakemake's ``--config`` flag:

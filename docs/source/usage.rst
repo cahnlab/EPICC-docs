@@ -149,7 +149,7 @@ generate them.
 
 
 Plotting RNAseq expression levels on target genes
-+++++++++++++++++++++++++++++++++++++++++++++++++
+-------------------------------------------------
 
 Given a list of genes (and optional labels), plots expression levels across all
 samples in the analysis. Genes uniquely differentially regulated in one sample
@@ -176,7 +176,7 @@ See :ref:`Example output <fig-rna-exp-level>`.
 .. _ref-new-go-analysis:
 
 Performing GO analysis on target genes
-++++++++++++++++++++++++++++++++++++++
+--------------------------------------
 
 Given a file containing a list of genes, performs Gene Ontology enrichment
 analysis (optionally against a custom background; default is all genes in the
@@ -203,7 +203,7 @@ See :ref:`Example output <ref-go-analysis>`.
 
 
 Finding motifs on target regions
-++++++++++++++++++++++++++++++++
+--------------------------------
 
 Given a BED file of regions, performs motif analysis with the MEME suite.
 
@@ -230,7 +230,7 @@ See :ref:`Example output <ref-motifs-analysis>`.
 
 
 Performing sRNA differential analysis on target regions
-+++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-------------------------------------------------------
 
 Given a BED or GFF file, runs ShortStack followed by differential expression
 with edgeR, limiting mapping and counts to the provided loci.
@@ -251,7 +251,7 @@ See :ref:`Example output <ref-cluster-diff-expression>`.
 
 
 Plotting heatmap on target regions
-++++++++++++++++++++++++++++++++++
+----------------------------------
 
 Given a BED file, plots a heatmap using deeptools. Edit ``heatmap_target_file``
 and ``heatmap_target_file_label`` in the options file, or pass them via the
@@ -300,7 +300,7 @@ See :ref:`Example output <fig-heatmap-deeptools>`.
 
 
 Plotting metaplot profiles on target regions
-++++++++++++++++++++++++++++++++++++++++++++
+--------------------------------------------
 
 Given a BED file, plots a metaplot profile using deeptools. Uses the same
 ``heatmap_target_file`` / ``heatmap_target_file_label`` options file entries as
@@ -333,7 +333,7 @@ See :ref:`Example output <fig-metaplot-deeptools>`.
 
 
 Plotting browser screenshots on target regions
-++++++++++++++++++++++++++++++++++++++++++++++
+----------------------------------------------
 
 Given a region file, plots browser screenshots using R packages. Edit
 ``browser_target_file`` and ``browser_target_file_label`` in the options file.
@@ -374,7 +374,7 @@ See :ref:`Example output <fig-browser-plot>`.
 
 
 Rerunning a specific analysis
-+++++++++++++++++++++++++++++
+-----------------------------
 
 Changing parameters in the options file or sample sheet will trigger a rerun of
 affected outputs. To force Snakemake to recreate a specific target:
