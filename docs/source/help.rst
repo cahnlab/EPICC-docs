@@ -10,6 +10,12 @@ Help Structural RNA database with Rfam
 ======================================
 
 How to get the file of structural RNAs from Rfam database to filter from sRNA-seq in the EPICC pipeline.
+
+By default (``structural_rna_depletion: true``) the file is derived automatically
+for each genome via Infernal and Rfam, so no action is needed. Follow the steps
+below only to supply your own file through ``structural_rna_fafile`` in the
+genome block of the options file.
+
 Help: `<https://docs.rfam.org/en/latest/sequence-extraction.html>`
 
 - STEP 1: install easel::
@@ -68,7 +74,7 @@ If using several files, run this command each time and concatenate the outputs, 
   
     gzip Rfam_ncRNAs.fa
 
-- STEP 10: Edit the `structural_rna_fafile` entry in the config file with this file (including the full path).
+- STEP 10: Edit the `structural_rna_fafile` entry under the corresponding genome in the options file with this file (including the full path).
 
 .. _ref-help-go-analysis:
 
@@ -77,13 +83,13 @@ Gene Ontology analysis
 
 How to create the GO database for use in the EPICC pipeline.
 
-Prexisting database
-+++++++++++++++++++
+Preexisting database
+++++++++++++++++++++
 
-- If you already have a database from AnnotationForge to use, copy the file in the `genomes/<ref_genome>/GO/` directory for the analysis to work automatically. If you have not run the epigenetic button yet, you will need to create these folders, where `ref_genome` is the last column of your sample file.
+- If you already have a database from AnnotationForge to use, copy the file in the `genomes/<ref_genome>/GO/` directory for the analysis to work automatically. If you have not run EPICC yet, you will need to create these folders, where `ref_genome` is the name used in the ``Genome`` column of your sample sheet.
 
 - For some species, an annotation package can be created with AnnotationForge makeOrgPackageFromNCBI(). For help:
-https://bioconductor.org/packages/release/bioc/vignettes/AnnotationForge/inst/doc/MakingNewOrganismPackages.html
+  https://bioconductor.org/packages/release/bioc/vignettes/AnnotationForge/inst/doc/MakingNewOrganismPackages.html
 
 Creating a new database
 +++++++++++++++++++++++
@@ -124,32 +130,42 @@ Add this file to the corresponding reference genome ``gene_info_file`` in the co
   B73_v5:
     gene_info_file: data/B73_v5_genes_info.tab
 
-- STEP 4: Run the epigenetic button once only to generate the GO database::
+- STEP 3: Run the pipeline once only to generate the GO database:
 
-    snakemake --cores 1 genomes/<ref_genome>/GO/<dbname> 
+.. code-block:: bash
 
-for example::
+   epicc run --samples config/my_samples.tsv -- genomes/<ref_genome>/GO/<dbname>
 
-  snakemake --cores 1 genomes/ColCEN/GO/org.Zmays.eg.db
+For example (Arabidopsis thaliana, ColCEN assembly):
 
-- STEP 4b: Create the GO database manually
+.. code-block:: bash
 
-Run the script: ``workflow/scripts/R_build_GO_database.R``, with the following arguments::
+   epicc run --samples config/my_samples.tsv -- genomes/ColCEN/GO/org.Athaliana.eg.db
 
-  script="scripts/R_build_GO_database.R"
-  infofile="B73_v5_infoGO.tab" # replace with appopriate `gaf_file` from STEP1
-  genefile="B73_v5_genes_info.tab # replace with appropriate `gene_info_file` from STEP2
-  ref_genome="B73_v5" # replace with corresponding genome reference (same than on the sample file)
-  genus="Zea" # replace with corresponding genus (conventionally first letter is capitalized)
-  species="mays" # replace with corresponding species (conventionally lowerscript)
-  ncbiID="4577" # find value corresponding to the species at NCBI
+The database name follows the AnnotationForge convention
+``org.<G><species>.eg.db``, where ``<G>`` is the first letter of the genus
+(capitalized) and ``<species>`` is the species name in lowercase
+(e.g. ``org.Athaliana.eg.db`` for *Arabidopsis thaliana*).
 
-  Rscript ${script} ${infofile} ${genefile} ${ref_genome} ${genus} ${species} ${ncbiID}
+- STEP 3b: Create the GO database manually
 
-An replace the `go_database` entry in the config file for the corresponding species:: 
+Run the script ``workflow/scripts/R_build_GO_database.R`` with the following arguments:
 
-  mays:
-    go_database: org.Zmays.eg.db # where dbanme="org.<firstlettergenus><species>.eg.db"
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
+.. code-block:: bash
+
+   script="workflow/scripts/R_build_GO_database.R"
+   infofile="B73_v5_infoGO.tab"        # replace with appropriate gaf_file from STEP 1
+   genefile="B73_v5_genes_info.tab"    # replace with appropriate gene_info_file from STEP 2
+   ref_genome="B73_v5"                 # must match the Genome column in the sample sheet
+   genus="Zea"                         # first letter capitalized
+   species="mays"                      # lowercase
+   ncbiID="4577"                       # NCBI taxonomy ID for the species
+
+   Rscript ${script} ${infofile} ${genefile} ${ref_genome} ${genus} ${species} ${ncbiID}
+
+The database is installed into ``genomes/<ref_genome>/GO/`` automatically.
+The GO database name is auto-derived as ``org.<G><species>.eg.db``
+(e.g. ``org.Zmays.eg.db`` for *Zea mays*) and does not need to be added
+to the options file manually. Each genome's database lives in its own
+``genomes/<ref_genome>/GO/`` library, so two references of the same species
+(e.g. ColCEN and TAIR10) do not collide.

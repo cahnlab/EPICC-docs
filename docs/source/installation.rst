@@ -3,26 +3,49 @@ Installation
 
 1. Clone the repository:
 
-``git clone https://github.com/joncahn/epigeneticbutton.git``
+.. code-block:: bash
 
-to rename it, for example "epicc":
+   git clone https://github.com/cahnlab/EPICC.git
 
-``git clone https://github.com/joncahn/epigeneticbutton.git epicc``
+Or via SSH:
 
-2. Move to the directory
+.. code-block:: bash
 
-``cd epigeneticbutton`` or, if renamed: ``cd epicc``
+   git clone git@github.com:cahnlab/EPICC.git
 
-3. Install snakemake and other required packages from the depency file and activate the environment:
+Then enter the directory:
 
-``conda create -n smk9 -y --file config/smk9.txt``
+.. code-block:: bash
 
-``conda activate smk9``
+   cd EPICC
 
-If you don't have conda yet, follow the directions `on the conda website linked here`_
+2. Install Snakemake and other required packages from the dependency file and activate the environment:
+
+.. code-block:: bash
+
+   conda create -n epicc -y --file config/epicc-env.txt
+   conda activate epicc
+
+If you do not have conda yet, follow the directions `on the conda website linked here`_.
 
 .. _on the conda website linked here: https://docs.conda.io/projects/conda/en/stable/user-guide/install/
 
-If you want to run the pipeline on a different platform than locally or slurm, you will need to also install the corresponding snakemake-executor-plugin (`executor plugin options here`_)
+``config/epicc-env.txt`` installs Snakemake (9.0 or later) and the SLURM and
+generic-cluster executor plugins (the latter is used by the UGE profile). The
+SLURM jobstep plugin is pinned below 0.6.1; see :ref:`Resources and Profiles
+<ref-resources-profiles>`. If you want to run the pipeline on another platform,
+also install the corresponding Snakemake executor plugin (`executor plugin options here`_).
 
 .. _executor plugin options here: https://snakemake.github.io/snakemake-plugin-catalog/index.html
+
+3. Check the installation and your inputs. ``epicc validate`` checks the options
+file and sample sheet, then runs a Snakemake dry-run:
+
+.. code-block:: bash
+
+   epicc validate --samples your_samples.tsv
+
+Rule-specific conda environments (under ``workflow/envs/``) are created
+automatically on first use. On a cluster, set up a scheduler profile with
+``epicc init-profile`` first; see :ref:`Resources and Profiles
+<ref-resources-profiles>`.

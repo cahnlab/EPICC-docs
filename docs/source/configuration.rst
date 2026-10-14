@@ -1,203 +1,317 @@
+.. _configuration:
+
 =============
 Configuration
 =============
 
-For new users, it is recommended to use the configuration `epicc-builder app <https://epicc-builder.streamlit.app/>`__ to validate your sample metadata file and choose analysis options.
+For new users, it is recommended to use the local HTML builder at
+``tools/epicc-builder.html`` (open directly in a browser; it runs locally, and
+loads its Tabulator and js-yaml libraries from a CDN, so the page needs internet
+access) to build and validate your sample metadata file and choose analysis
+options. The tool exports a validated sample sheet and an
+options YAML ready to pass to ``epicc run``.
 
-Metadata samplefile
-===================
+
+Metadata sample file
+====================
 
 Summary
 -------
 
-Prepare your sample metadata file (default to ``config/all_samples.tsv``) with the required 9 columns below (see below for more details specific to each data-type):
+Prepare your sample metadata file (start from the documented template at
+``config/example_samples.tsv``). It is a tab-separated file (TSV) with a header
+row and 11 columns; each row defines one sample. Pass it to the pipeline via
+``epicc run --samples your_samples.tsv``.
 
-+-------------+--------+----------+---------------+-------------+------------+--------------+----------+--------------+
-| *data_type* | *line* | *tissue* | *sample_type* | *replicate* | *seq_id*   | *fastq_path* | *paired* | *ref_genome* |
-+=============+========+==========+===============+=============+============+==============+==========+==============+
-+-------------+--------+----------+---------------+-------------+------------+--------------+----------+--------------+
+.. code-block:: text
+
+   Sample_ID  Assay  Genome  Levels  Replicate_ID  Read_files  Read_layout  IP_target  Control  Peak_type  Comments
+
+The four trailing columns (``IP_target``, ``Control``, ``Peak_type``,
+``Comments``) may be left blank or omitted from the right-hand end of a row; a
+WGBS row can stop after ``Read_layout``. Lines starting with ``#`` are skipped,
+so rows can be parked without deleting them. Trailing whitespace on any field is
+stripped.
+
+- **Sample_ID**: Unique identifier for the sample, used in output filenames and
+  as the target of the ``Control`` column. Must be filesystem-safe — no ``__``,
+  ``/``, whitespace, or shell metacharacters.
+
+- **Assay**: The experimental method only. Must be one of:
+  ``ChIP``, ``CUT_RUN``, ``CUT_TAG``, ``ATAC``, ``RNAseq``, ``RAMPAGE``,
+  ``sRNA``, ``WGBS``, ``WGBS_nd``, ``PBAT``, ``EMseq``, ``dmC``.
+  Whether peaks are called as broad or narrow is set separately in
+  ``Peak_type``; combined values such as ``ChIP_broad`` are not accepted in the
+  sample sheet.
+
+- **Genome**: Reference genome name (e.g. ``ColCEN``, ``Spombe``). Must match
+  an entry under ``genomes:`` in the options file and must not contain ``__``.
+  To map the same reads to several references, comma-separate them (e.g.
+  ``B73,W22``); see :ref:`Mapping one sample to several genomes
+  <ref-multi-genome>`.
+
+- **Levels**: Comma-separated ``factor:level`` pairs describing experimental
+  conditions (e.g. ``genotype:WT,tissue:leaf``). All samples in the file must
+  use the same factor names, in the same order. Factor names and levels must
+  not contain ``=``. The level values (not the factor names) are joined with
+  ``_`` to form the label used in analysis-level file names (e.g. ``WT_leaf``).
+  Give control samples (Input, WCE, IgG) meaningful Levels too, since Levels
+  determine how samples are grouped.
+
+- **Replicate_ID**: Replicate identifier (e.g. ``rep1``, ``rep2``). All
+  samples sharing the same Assay, Levels, IP_target, and Genome are merged
+  for downstream analysis. Control rows are merged on Levels, IP_target, and
+  Genome only, so one Input/IgG/WCE can serve several IP types (for example
+  broad and narrow, or ChIP and CUT&RUN) whatever Assay label the control rows
+  carry.
+
+- **Read_files**: Path to input data. Accepts:
+
+  - SRA accession (downloaded automatically): ``SRR27821931``
+  - Multiple inputs merged with ``+``: ``SRR27821931+SRR27821932``, or
+    ``a.fq.gz+b.fq.gz``. ``+``-merge works for SRA accessions and FASTQ files
+    (local or URL) and all components must be of the same type. For PE FASTQs,
+    keep each pair together: ``a_R1.fq.gz,a_R2.fq.gz+b_R1.fq.gz,b_R2.fq.gz``.
+    BAM and bedMethyl inputs cannot be merged this way; merge them upstream.
+  - Local FASTQ path (SE): ``/archive/fastq/sample.fq.gz``
+  - Local FASTQ paths (PE, comma-separated R1,R2): ``/archive/fastq/sample_R1.fq.gz,/archive/fastq/sample_R2.fq.gz``
+  - HTTP(S) URL to a FASTQ, BAM, or bedMethyl file
+  - Public S3 URI: ``s3://bucket/key/sample.bam``. Only public
+    (authentication-free) objects are supported: there is no request signing
+    and no credentials. Requester-Pays buckets (including SRA's
+    Original-Format ``s3://sra-pub-src-*`` buckets) do not work; use the plain
+    SRA accession instead.
+  - Local BAM path (for ``dmC`` or ``aligned_bams`` mode)
+
+  Local paths must exist before the run starts, and the same file or accession
+  must not appear in more than one sample.
+
+- **Read_layout**: ``PE`` for paired-end data or ``SE`` for single-end data. For SRA
+  accessions this must match the run's real layout: the download rule checks what
+  ``fasterq-dump`` produced and stops with the accession name if the two disagree,
+  rather than carrying an empty FASTQ through mapping.
+
+- **IP_target**: Required for ``ChIP``, ``CUT_RUN`` and ``CUT_TAG``, including
+  control rows. The antibody target (e.g. ``H3K9me2``, ``TB1``) for IP samples,
+  or the control type (e.g. ``Input``, ``WCE``, ``IgG``) for control samples.
+  Leave blank for other assays.
+
+- **Control**: Sample_ID of the control sample for this IP (e.g. the Input or
+  IgG sample's Sample_ID). Required on ``ChIP``/``CUT_RUN``/``CUT_TAG`` IP rows
+  for peak calling, and on ``RAMPAGE`` rows. Leave blank for plain control
+  samples and other assays. Several IP samples can share one control. A
+  control may itself declare a ``Control`` (a *dual-role* sample, see
+  :ref:`ChIP-seq <ref-chip-dual-role>` below), but a chain can be at most two
+  levels deep. A pulldown row with no ``Control`` is not peak-callable and is
+  dropped from the peak and analysis targets.
+
+- **Peak_type**: ``broad`` or ``narrow``, the peak-calling type. Required on
+  ``ChIP``, ``CUT_RUN`` and ``CUT_TAG`` rows that call peaks, that is, rows with
+  a ``Control``. Optional on a control-only row, which calls no peaks. Must be
+  blank for every other assay (ATAC's peak type is fixed). It is an analytical
+  choice kept separate from the assay, so the same libraries can be
+  re-analyzed under the other peak type by editing this one column.
+
+- **Comments**: Optional free text for your own notes (e.g. ``resequenced
+  2026-03; higher duplication than rep2``). Never read by the pipeline and
+  never part of analysis names or output paths. The column may be omitted
+  entirely.
+
+.. _ref-multi-genome:
+
+Mapping one sample to several genomes
+-------------------------------------
+
+A comma-separated ``Genome`` (e.g. ``B73,W22``) maps one sample to every listed
+reference. Reads are downloaded and trimmed once, using the bare ``Sample_ID``
+(e.g. ``trim__WT_H3K9me2_rep1__R1.fastq.gz``), and then aligned to each
+reference. From alignment onward every file name carries the genome as
+``<Sample_ID>__<Genome>`` (e.g. ``final__WT_H3K9me2_rep1__B73.bam``), so the
+analyses for different references never collide. Each genome needs its own
+entry under ``genomes:`` in the options file and may not appear twice in the
+list.
+
+Analysis-level (merged-replicate) files use a derived name,
+``{Assay}__{levels_label}__{IP_target}__{Genome}``, where ``Assay`` is combined
+with the peak type for pulldown assays (e.g.
+``ChIP_broad__WT__H3K9me2__Spombe``). This internal combined token appears in
+output paths; it is not a valid sample-sheet value.
 
 
-  - Col1: *data_type*
-      Type of data. Only takes one of these options: [RNAseq | ChIP | TF | mC | sRNA]
-	  See below for how to further specify ChIP and TF samples.
+Columns specific to each assay type
+------------------------------------
 
-  - Col2: *line*
-      Sample line (e.g. ``B73``). It can also be used to define different genotypes (e.g. ``WT``, ``ddm1``, ``dnmt3a``), or other characteristics that vary between samples, such as collection time points.
-  
-  - Col3: *tissue* 
-      Tissue type (e.g. ``Leaf``). It can also be used to define different genotypes (e.g.``WT``, ``ddm1``, ``dnmt3a``), or other characteristics that vary between samples, such as collection time points.
-  
-  - Col4: *sample_type* 
-      Sample identifier. It depends on the type of data; for example for ChIP-seq data, it is used to differentiate the IP from the corresponding Input. See `Columns unique per data type` below for the different options.
-  
-  - Col5: *replicate*
-      Replicate ID (e.g ``Rep1``, ``RepA``, ``plate56``). Different replicates must have the same *line* and *tissue* values to be analyzed together as replicates.
-  
-  - Col6: *seq_id*
-      Sequencing ID. Unique identifier to identify the raw data. Use the corresponding SRR####### if downloading from SRA, or a unique string which is unique to         your sample in the fastq path below (but shared between Read1 and Read2 for paired-end data).
-  
-  - Col7: *fastq_path* 
-      Path to FASTQ files. if downloading from SRA, use ``SRA``.
-  
-  - Col8: *paired*
-      Whether the raw data is paired-end (``PE``) or single-end (``SE``). Only takes one of these two options: [PE | SE]
-  
-  - Col9: *ref_genome* 
-      Reference genome name. Will need an entry in the configuration file.
+.. _ref-chip-dual-role:
 
-A template can be found on the `epicc-builder app <https://epicc-builder.streamlit.app/>`__ and you can use it to confirm that your entries follow the epxected patterns.
+ChIP-seq — Histones and Transcription Factors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Example
--------
+- **Assay**: ``ChIP``.
 
-A test example is below (the header is only indicative, and should not be present on the actual file), using data from `Cahn et al. 2024 <https://pubmed.ncbi.nlm.nih.gov/39632087/>`__ and `Lee et al. 2020 <https://pubmed.ncbi.nlm.nih.gov/32303559/>`__.
+- **Peak_type**: ``broad`` for histone marks with broad peaks (e.g.
+  H3K9me2, H3K27me3) or ``narrow`` for marks with narrow peaks
+  (e.g. H3K4me3) and transcription factors. The
+  `ENCODE histone ChIP-seq target categorization
+  <https://www.encodeproject.org/chip-seq/histone/>`__ is a good
+  starting point: broad-domain marks (H3K27me3, H3K36me3, H3K9me1/2,
+  H3K79me2/3, H4K20me1, H3K4me1) use ``broad``; punctate marks
+  and TFs (H3K4me2/3, H3K27ac, H3K9ac, H2AFZ) use ``narrow``.
+  Note that H3K27ac is narrow despite being on the same residue as
+  the broad mark H3K27me3. H3K9me3 is nominally broad but heavily
+  enriched in repeats — see ENCODE's note. Some targets profit from
+  running both passes and comparing: RNA Pol II has sharp TSS peaks
+  plus broader gene-body coverage, and H3K27me3 Polycomb domains
+  can contain internal islands. To run both passes, copy the rows and
+  change ``Peak_type``; the assay stays ``ChIP``.
 
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| *data_type* | *line* | *tissue*     | *sample_type* | *replicate* | *seq_id*    | *fastq_path* | *paired* | *ref_genome* |
-+=============+========+==============+===============+=============+=============+==============+==========+==============+
-| ChIP        | Col0   | WT           | H3K27ac       | Rep1        | SRR27821885 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| ChIP        | Col0   | WT           | H3K4me1       | Rep1        | SRR27821852 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| ChIP        | Col0   | WT           | Input         | Rep1        | SRR27821932 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| mC          | Col0   | suvh1        | WGBS          | Rep1        | SRR27821959 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| mC          | Col0   | WT           | WGBS          | Rep1        | SRR27821907 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| mC          | Col0   | WT           | WGBS          | Rep2        | SRR27821907 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| RNAseq      | Col0   | suvh13       | RNAseq        | Rep1        | SRR27821840 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| RNAseq      | Col0   | suvh13       | RNAseq        | Rep2        | SRR27821839 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| RNAseq      | Col0   | suvh13       | RNAseq        | Rep3        | SRR27821838 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| RNAseq      | Col0   | WT           | RNAseq        | Rep1        | SRR27821967 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| RNAseq      | Col0   | WT           | RNAseq        | Rep2        | SRR27821966 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| RNAseq      | Col0   | WT           | RNAseq        | Rep3        | SRR27821918 | SRA          | PE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| TF_SUVH1    | Col0   | suvh1.1      | Input         | Rep1        | SRR27821931 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| TF_SUVH1    | Col0   | suvh1.1      | Input         | Rep2        | SRR27821934 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| TF_SUVH1    | Col0   | suvh1.1      | IP            | Rep1        | SRR27821933 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| TF_SUVH1    | Col0   | suvh1.1      | IP            | Rep2        | SRR27821935 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| TF_SUVH3    | Col0   | suvh3        | Input         | RepA        | SRR27821929 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| TF_SUVH3    | Col0   | suvh3        | IP            | RepA        | SRR27821930 | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| sRNA        | Col0   | VLP_ddm1     | shRNA         | Rep1        | SRR8792540  | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| sRNA        | Col0   | VLP_ddm1     | shRNA         | Rep2        | SRR8792538  | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
-| sRNA        | Col0   | VLP_WT_inflo | shRNA         | Rep1        | SRR8792539  | SRA          | SE       | ColCEN       |
-+-------------+--------+--------------+---------------+-------------+-------------+--------------+----------+--------------+
+- **IP_target**: Required for all ChIP samples including controls. The name
+  of what was pulled down (e.g. ``H3K9me2`` or ``TB1`` for IPs; ``Input``,
+  ``WCE``, or ``IgG`` for controls).
 
-Columns common to all types of samples
---------------------------------------
+- **Control**: For IP samples, the Sample_ID of the control sample. Multiple
+  IP samples can share the same control. A control may itself declare a
+  ``Control``: in this *dual-role* case a sample is both another row's
+  control and an analysis target in its own right (e.g. H3 serving as
+  H3K9me2's control while itself being normalized against Input). It gets the
+  full analysis treatment (peaks, fold-change tracks, merged analysis group).
+  Chaining stops there: the control's control must not declare one.
 
-- Col2: *line*
-   Can be any information you want, such as ``Col0`` or ``WT`` to annotate and label samples
+To use different controls for different marks (e.g. H3 vs H4 pulldown as
+controls for different IPs), assign the appropriate control Sample_ID in the
+Control column for each IP row.
 
-- Col3: *tissue* 
-   Can be any information you want, such as ``leaf`` or ``mutant`` or ``6h_stress`` to annotate and label samples.
-   The combination line x tissue will be the base for all comparisons (e.g ``WT_leaf`` vs ``WT_roots`` or ``Col0_control`` vs ``Ler_stress``)
+Example (histone):
 
-- Col5: *replicate* 
-   Any value to match the different replicates (e.g ``Rep1``, ``RepA``, ``1``). All the different replicates are merged for samples with the same *line (Col2)*, *tissue (Col3)* and *sample_type (Col4)*.
+.. code-block:: text
 
-- Col6: *seq_id*
-   Unique identifier to identify the raw data. If the data is deposited in SRA, it can be an SRR number (e.g. ``SRR27821931``) or a comma-delimited list of SRR numbers (e.g. ``SRR27821931,SRR27821932,SRR27821933``) without spaces if multiple fastq files should be merged into 1 biological replicate. If the data is local, it must be a unique identifier of the file in this folder (e.g. ``wt_k27``). This identifier should be shared by both 'R1' and 'R2' fastq files for paired-end data.
+   WT_leaf_H3K9me2_rep1  ChIP  ColCEN  genotype:WT,tissue:leaf  rep1  SRR12345  PE  H3K9me2  WT_leaf_Input_rep1  broad
+   WT_leaf_Input_rep1    ChIP  ColCEN  genotype:WT,tissue:leaf  rep1  SRR12346  PE  Input
 
-- Col7: *fastq_path*
-   Either ``SRA`` if raw data to be downloaded from SRA (the SRR number should be used as *seq-id*), or the path to the directory containing the fastq file (e.g. ``/archive/fastq``), in which case the *seq_id* should be a unique identifier of the corresponding file in this folder (e.g. ``/archive/fastq/raw.reads.wt_k27.fastq.gz``)
+Example (transcription factor):
 
-- Col8: *paired*
-   ``PE`` for paired-end data or ``SE`` for single-end data. PE samples should have two fastq files 'R1' and 'R2' at the location defined in * fastq_path (Col7)*, sharing the same *seq-id (Col6)* (e.g. ``/archive/fastq/raw.reads.wt_k27_R1.fastq.gz`` and ``/archive/fastq/raw.reads.wt_k27_R2.fastq.gz``)
+.. code-block:: text
 
-- Col9: *ref_genome*
-	Name of the reference genome to use for mapping (e.g ``tair10``). 
-  	For each reference genome, a corresponding fasta, gff and gtf files are required. It can be a full path (including the extension) or relative to the main repo folder. These files can be gzipped. For example, if your sample file has ``B73_NAM`` as a *ref_genome (Col9)*, there must be this entry in the config file: 
+   WT_leaf_TB1_rep1    ChIP  ColCEN  genotype:WT,tissue:leaf  rep1  SRR12347  PE  TB1    WT_leaf_Input_rep1  narrow
+   WT_leaf_Input_rep1  ChIP  ColCEN  genotype:WT,tissue:leaf  rep1  SRR12348  PE  Input
 
-::
+Example (dual-role control; H3 is normalized against Input and also serves as
+the control for H3K9me2):
 
-	B73_NAM:
-		fasta_file: path/to/B73.fasta	# can be .fa(.gz) or .fasta(.gz)
-		gff_file: B73.gff	# can be .gff*(.gz)
-		gtf_file: B73.gtf	# can be .gtf(.gz)
+.. code-block:: text
 
-Other files specific to each reference genome are optional.
-The GTF file can be created from a GFF file with cufflinks ``gffread -T <gff_file> -o <gtf_file>`` and check that ``transcript_id`` and ``gene_id`` are correctly assigned in the 9th column. The GFF file should have ``gene`` and ``exon`` in the 3rd column. All files can be gzipped (.gz extension).
+   Input_rep1     ChIP  ColCEN  genotype:WT,tissue:leaf  rep1  SRR1  PE  Input
+   H3_rep1        ChIP  ColCEN  genotype:WT,tissue:leaf  rep1  SRR2  PE  H3       Input_rep1  broad
+   H3K9me2_rep1   ChIP  ColCEN  genotype:WT,tissue:leaf  rep1  SRR3  PE  H3K9me2  H3_rep1     broad
 
-Columns specific to each data type
-----------------------------------
+Differential nucleosome sensitivity (DNS-seq) can be analyzed with
+``Assay=ChIP`` and ``Peak_type=broad``, using ``MNase`` as IP_target for the
+light digest and ``Input`` for the heavy digest.
 
-Histone ChIP-seq
-^^^^^^^^^^^^^^^^^^^
+CUT&RUN and CUT&Tag
+^^^^^^^^^^^^^^^^^^^^
 
-- Col1: *data_type*	
-	``ChIP`` or ``ChIP_<id>`` where ``<id>`` is an identifier to relate an IP sample to its corresponding input. Only necessary in case there are different inputs to be used for different IP samples that otherwise share the same *line (Col1)* and *tissue (Col2)* values.
-   	For example: If you have H3K27ac IP samples which you want normalized to an H3 sample, and H4K16ac to be normalized to an H4 sample. Both H3 and H4 samples should be labeled ``Input`` in *sample_type (Col4*), so to differentiate them, use ``ChIP_H3`` and ``ChIP_H4`` for the *data_type* of these Inputs and for the H3K27ac and H4K16ac IPs, respectively.
+- **Assay**: ``CUT_RUN`` or ``CUT_TAG``. Both route through the ChIP conda
+  environment.
 
-Example:
+- **Peak_type**: ``broad`` for diffuse marks (H3K27me3, H3K9me2, etc.);
+  ``narrow`` for sharp marks and TFs (H3K4me3, CTCF, etc.).
 
-+--------+------+----+---------+------+------------+----------+----+--------+
-|ChIP_H3 | Col0 | WT | H3K27ac | Rep1 | wt_k27     | ./fastq/ | PE | ColCEN |
-+--------+------+----+---------+------+------------+----------+----+--------+
-|ChIP_H3 | Col0 | WT | IP      | Rep1 | wt_h3_ctrl | ./fastq/ | PE | ColCEN |
-+--------+------+----+---------+------+------------+----------+----+--------+
-|ChIP_H4 | Col0 | WT | H3K27ac | Rep1 | wt_h4k16   | ./fastq/ | PE | ColCEN |
-+--------+------+----+---------+------+------------+----------+----+--------+
-|ChIP_H4 | Col0 | WT | IP      | Rep1 | wt_h4_ctrl | ./fastq/ | PE | ColCEN |
-+--------+------+----+---------+------+------------+----------+----+--------+
+- **IP_target**: Required for all CUT&x samples including controls. Use the
+  antibody target for IPs and ``IgG`` for controls.
 
-- Col4: *sample_type*
-    Either ``Input`` to be used as a control (even if it is actually H3 or IgG pull-down), or the histone mark IP (e.g. ``H3K9me2``). If the mark is not already listed in the config file ``chip_callpeaks: peaktype:``, add it to the desired category (either narrow or broad peaks).
-   
-- Option:
-      Differential nucleosome sensitivity (DNS-seq) can be analyzed with ``ChIP`` *data_type*, using ``MNase`` for the light digest and ``Input`` for the heavy digest.
+- **Control**: For IP samples, the Sample_ID of the IgG control. Multiple IPs
+  commonly share a single IgG (the typical CUT&RUN convention is one IgG per
+  batch, not per replicate). One biological IgG can serve broad and narrow IPs,
+  and CUT&RUN and CUT&Tag IPs, at once.
 
-Transcription factor ChIP-seq
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+- **Peak callers**: Defaults are shape-aware — ``broad`` → epic2;
+  ``narrow`` → SEACR. MACS2 is also supported. Override via
+  ``cut_callpeaks.broad_caller`` / ``cut_callpeaks.narrow_caller`` in the
+  options file, or ``--cut-broad-caller`` / ``--cut-narrow-caller`` on the
+  command line.
 
-- Col1: *data_type*
-	``TF_<tf_name>`` where ``<tf_name>`` is the name of the transcirption factor (e.g. for ``TB1`` data, use ``TF_TB1``). This name should be identical for the IP and its input, and for all replicates. Multiple TFs can be analyzed in parallel, each having its own set of IP and Input samples e.g. ``TF_<name1>`` and ``TF_<name2>``.
-   
-- Col4: *sample_type*
-	Either ``Input`` or ``IP``. This works for transcription factors with narrow peaks (default). Use ``IPb`` for broad peaks.
+Example (CUT&RUN sharing one IgG across replicates):
+
+.. code-block:: text
+
+   WT_endo_H3K27me3_rep1  CUT_RUN  ColCEN  genotype:WT,tissue:endosperm  rep1  SRR8310960  PE  H3K27me3  WT_endo_IgG_rep1  broad
+   WT_endo_H3K27me3_rep2  CUT_RUN  ColCEN  genotype:WT,tissue:endosperm  rep2  SRR8310958  PE  H3K27me3  WT_endo_IgG_rep1  broad
+   WT_endo_IgG_rep1       CUT_RUN  ColCEN  genotype:WT,tissue:endosperm  rep1  SRR8310961  PE  IgG
+
+Example (CUT&Tag for a TF, single-end; SEACR is the default narrow caller):
+
+.. code-block:: text
+
+   WT_leaf_CTCF_rep1  CUT_TAG  hg38  genotype:WT,tissue:leaf  rep1  SRR12345  SE  CTCF  WT_leaf_IgG_rep1  narrow
+   WT_leaf_IgG_rep1   CUT_TAG  hg38  genotype:WT,tissue:leaf  rep1  SRR12346  SE  IgG
+
+ATAC-seq
+^^^^^^^^^
+
+- **Assay**: ``ATAC``
+- **Peak_type**: Leave blank (peaks are always called as narrow).
+- **IP_target**: Leave blank.
+- **Control**: Leave blank.
 
 RNA-seq
-^^^^^^^^^^
+^^^^^^^^
 
-- Col1: *data_type*
-	``RNAseq``. No other options.
+- **Assay**: ``RNAseq``
+- **IP_target**: Leave blank.
+- **Control**: Leave blank.
 
-- Col4: *sample_type*
-	``RNAseq``. No other options.
+RAMPAGE
+^^^^^^^^
+
+- **Assay**: ``RAMPAGE``
+- **IP_target**: Leave blank.
+- **Control**: Sample_ID of the corresponding RNAseq sample (used for
+  normalization).
 
 small RNA-seq
-^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^
 
-- Col1: *data_type*
-	``sRNA``. No other options.
+- **Assay**: ``sRNA``
+- **IP_target**: Leave blank.
+- **Control**: Leave blank.
 
-- Col4: *sample_type*
-	``sRNA``. Can also be ``smallRNA`` or ``shRNA``. Does not change the analysis but it is used in file names.
+Whole Genome Bisulfite Sequencing
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Whole Genome DNA methylation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+- **Assay**: One of ``WGBS``, ``WGBS_nd``, ``PBAT``, or ``EMseq``. These
+  labels identify the conversion chemistry and inform Bismark alignment
+  parameters:
 
-- Col1: *data_type*
-	``mC``. No other options.
+  - ``WGBS`` — standard directional WGBS (e.g. TruSeq, Swift HTP)
+  - ``WGBS_nd`` — non-directional WGBS (e.g. Zymo Pico Methyl-Seq, Swift Accel-NGS)
+  - ``PBAT`` — post-bisulfite adapter tagging
+  - ``EMseq`` — enzymatic methyl-seq (NEB EM-seq kit)
 
-- Col4: *sample_type*
-	``mC``. Can also be ``WGBS``, ``ONT``, ``Pico`` or ``EMseq``. Not yet relevant except for the file names, but will be used in future release to define the type of data.
+- **IP_target**: Leave blank.
+- **Control**: Leave blank.
+
+Direct Methylation from Long-Read Sequencing (dmC)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **Assay**: ``dmC``. For samples with native base modifications (Oxford
+  Nanopore, PacBio) that have not undergone bisulfite conversion.
+
+- **Read_files**: Path to input file. Supports:
+
+  - **modBAM**: BAM files with MM/ML methylation tags from basecalling
+    (e.g. Dorado, Guppy)
+  - **bedMethyl**: Pre-computed methylation calls in bedMethyl format
+    (e.g. from ``modkit pileup``)
+
+  The pipeline automatically detects the format. modBAM files are aligned
+  and processed through ``modkit pileup``. Both formats are converted to
+  Bismark-compatible CX_report format for downstream analysis. BAM and
+  bedMethyl inputs cannot be ``+``-merged.
+
+- **Read_layout**: Only ``SE`` is currently supported.
+- **IP_target**: Leave blank.
+- **Control**: Leave blank.
+
 
 Configuration file
 ==================
@@ -205,133 +319,85 @@ Configuration file
 Summary
 -------
 
-Update ``config/config.yaml`` with your paths and parameters.
-  
-- Repository folder
-	This is the full path to the working directory where the repository was cloned and the results will be stored.
+Update ``config/epicc-options.yaml`` with your paths and parameters. The file
+is commented inline; all commonly adjusted options are described below. Pass a
+different options file via ``epicc run --options``.
 
-- Analysis name
-	This is the name of the complete analysis which will be used to label the combined output files.
+Repository folder
+^^^^^^^^^^^^^^^^^
 
-- Sample file
-	This is the full path to the file detailed above which contain your samples metadata. 
-  
-- Reference genome files 
-	For each reference genome in the sample file (*ref_genome (Col9)*), enter the corresponding species, the full paths to a fasta file, a gene gff file, and a gene gtf file. Optionally, a path to a gaf file and gene info file can be given for Gene Ontology (GO) analysis (see `Extra outputs` and `Help GO <https://github.com/joncahn/epigeneticbutton/blob/main/Help/Help_Gene_Ontology>`__ for more details), an annotation file (bed format) for transposable elements for TE-centered analysis, and a fasta file of structural RNAs to be depleted from small RNA data (see `Help Rfam <https://github.com/joncahn/epigeneticbutton/blob/main/Help/Help_structural_RNAs_database_with_Rfam>`__ for more details).
-example: 
+``repo_folder`` is optional. The pipeline auto-detects the repository location
+from the Snakefile at runtime. Override explicitly only when accessing the
+repository via a non-standard path.
 
-::
+Analysis name
+^^^^^^^^^^^^^
 
-	ColCEN:
-		species: "thaliana"
-		fasta_file: path/to/ColCEN.fasta	# can be .fa(.gz) or .fasta(.gz)
-		gff_file: path/to/ColCEN.gff	# can be .gff*(.gz)
-		gtf_file: path/to/ColCEN.gtf	# can be .gtf(.gz)
-		gaf_file: "data/ColCEN_infoGO.tab.gz" # optional. can be gzipped or not.
-  		gene_info_file: "data/ColCEN_genes_info.tab.gz" # optional. can be gzipped or not.
-  		te_file: "path/to/ColCEN_TEs.bed.gz" # optional. can be gzipped or not.
-  		structural_rna_fafile: "path/to/ColCEN_structural_RNAs.fa.gz" # optional.
+``analysis_name`` labels combined output files (e.g. matrices, plots, reports).
 
-- Analysis parameters / options:
-	Works with default parameter, but more details can be found below, on the `epicc-builder app <https://epicc-builder.streamlit.app/>`__, or directly commented on the ``config/config.yaml`` file for more customization.
-  
-- Species-specific parameters:
-	For each species in the reference genomes used, the number to used for the STAR index and the size of the genome are required.
-	The NCBI ID, genus and go_database are only required for gene ontology (GO) analysis, if the option has been selected (See `Help GO <https://github.com/joncahn/epigeneticbutton/blob/main/Help/Help_Gene_Ontology>`__ for more details).
+Sample file
+^^^^^^^^^^^
 
-example: 
+The path to the sample metadata file. Either set ``sample_file:`` in the
+options file or pass ``epicc run --samples FILE`` on the command line (the CLI
+flag takes precedence).
 
-::
+Reference genome files
+^^^^^^^^^^^^^^^^^^^^^^
 
-	thaliana:
-    	star_index: "--genomeSAindexNbases 12"
-    	genomesize: 1.3e8
-    	ncbiID: "3702" 		# optional
-    	genus: "Arabidopsis"	# optional
-    	go_database: org.Athaliana.eg.db 	# optional
-  
-- Resources allocation
-   
-Output options
---------------
+For each reference genome name used in the ``Genome`` column of the sample
+file, add an entry under the ``genomes:`` namespace in the options file. The
+namespace is required; a missing ``genomes:`` block is a startup error. All
+``*_file`` fields (``fasta_file``, ``gff_file``, ``te_file``, ``gaf_file``,
+``gene_info_file``) accept local paths (absolute or relative to the repository
+root) or HTTP(S) URLs, which are downloaded automatically when the rule runs;
+gzipped inputs are handled transparently. A genome name must not contain
+``__``.
 
-Default parameters
-^^^^^^^^^^^^^^^^^^
+.. code-block:: yaml
 
-- Full analysis:
-	By default, a full analysis is performed form raw data to analysis plots. Change ``full_analysis`` in the config file.
+   genomes:
+     ColCEN:
+       genus: "Arabidopsis"
+       species: "thaliana"
+       fasta_file: "path/to/ColCEN.fa.gz"          # .fa/.fasta(.gz)
+       gff_file: "path/to/ColCEN_genes.gff3.gz"    # .gff*(.gz)
+       #gtf_file: "path/to/ColCEN.gtf"             # optional; auto-derived from GFF via gffread if omitted
+       te_file: "path/to/ColCEN_TE.gff3.gz"        # optional; .bed(.gz) or .gff3(.gz)
+       gaf_file: "data/ColCEN_infoGO.tab.gz"        # only required when GO: true
+       gene_info_file: "data/ColCEN_genes_info.tab.gz"  # only required when GO: true
+       ncbi_taxid: "3702"
+       #genomesize: 1.3e8         # optional; auto-computed from FASTA if omitted
+       #star_index: "--genomeSAindexNbases 12"  # optional; auto-computed if omitted
+       #structural_rna_fafile: "<auto>"         # optional; auto-derived via Infernal/Rfam if omitted
 
-- Limited QC output:
-	By default, some QC options are not performed to limit the time and amount of output files. Change ``QC_option`` in the config file.
+Several fields are auto-derived at runtime and do not need to be specified:
+``gtf_file`` (generated from GFF via gffread), ``genomesize`` (total non-N
+bases in FASTA), ``star_index`` parameters, ``structural_rna_fafile``
+(fetched from Rfam via Infernal), and ``ncbi_taxid`` (looked up via the NCBI
+Datasets CLI). Any value provided explicitly in the options file overrides the
+computed value.
 
-- No Gene Ontology analysis: 
-	Due to the difficulty in automating building a GO database, this option is OFF by default. Change ``GO`` option in the config file. Please refer to Additional output options #2 below and `Help GO <https://github.com/joncahn/epigeneticbutton/blob/main/Help/Help_Gene_Ontology>`__ before setting it to ``true`` as it requires 2 other files. These files are available for Arabidopsis thaliana (Tair10 / ColCEN assembly) and Maize B73 (v5 or NAM assembly) in the ``data`` folder.
+The ``te_file`` field accepts ``.bed(.gz)`` (used as-is) or ``.gff3(.gz)``
+(auto-converted to BED6 using the GFF3 ``ID=`` attribute as the name column).
+The name of each feature must be unique.
 
-- No TE analysis: 
-	By default, no analysis on transposable elements is performed. Change ``te_analysis`` in the config file.
+The GO database for each genome is auto-derived as
+``org.<G><species>.eg.db`` (e.g. ``org.Athaliana.eg.db``) and installed into
+and loaded from ``genomes/<refgenome>/GO/`` to prevent collisions when
+multiple genomes of the same species are configured (e.g. ColCEN and TAIR10).
 
-- For ChIP-seq: 
-	The default mapping parameters are bowtie2 ``--end-to-end`` default parameters. Other options are available in the config file ``chip_mapping_option``.
+Analysis parameters
+^^^^^^^^^^^^^^^^^^^
 
-- For sRNA-seq: 
-	The default is not based on Netflex v3 library preparation. If your data was made with this kit, an additional deduplication and read trimming is required. To turn it ON, change the ``netflex_v3_deduplication`` in the config file. See `Known issues #3` if you have mixed libraries.
+Full documentation is available in ``config/epicc-options.yaml`` (all options
+are commented inline) and in the epicc-builder tools. The most commonly tuned
+settings can also be overridden per run with named ``epicc run`` flags (see
+:ref:`Named overrides <ref-named-overrides>`); a flag takes precedence over the
+options file.
 
-    The default is not to filter structural RNAs prior to shortstack analysis. Change ``structural_rna_depletion`` in the config file.  While this step is recommended for small interfering RNA analysis, it requires a pre-build database of fasta files. Please refer to the :ref:`Help RFAM <ref-help-structural-rna>` to generate the required file before setting it to ``true``. This file is available for Maize in the ``data`` folder. 
 
-    The default is to only perform *de novo* micro RNA identification (``--dn_mirna`` argument in ShortStack). If you also want the known microRNAs, download the fasta file from `miRbase <https://www.mirbase.org>`__, filter it for your species of interest, and add to the ``srna_mapping_params`` entry in the config file ``--known_miRNAs <path/to/known_miRNA_file.fa>``.
-
-Configuration Options
-^^^^^^^^^^^^^^^^^^^^^
-
-- Main output options
-
-	+ ``full_analysis``: When ``false``, only the mapping and the bigwigs will occur. When ``true`` (default), will also be performed: single-data analyses (e.g. peak calling for ChIP, differential expression for RNAseq, DMRs for mC) and combined analyses (e.g. Upset plots for ChIP/TF, heatmaps and metaplots on all genes).
-
-	+ ``te_analysis``: When ``true``, small RNA differential expression will be performed (if such data is available), as well as heatmaps and metaplots of all the samples. The name and path to the TE file in bed format must be filled in the config file for the corresponding reference genome. The name of the TEs (4th column of the bed file) must be unique. Default is ``false``.
-
-	+ ``QC_option``: When ``true``, runs fastQC on raw and trimmed fastq files. Default is ``false``, no fastQC analysis.
-
-	+ ``plot_allreps``: When ``false`` (default), a single track will be used for each sample where all the replicates are merged. When ``true``, all individual replicates will be used for plotting heatmaps, metaplots and browser shots.
-
-- Intermediate input formats
-
-	+ ``trimmed_fastqs``: When ``false`` (default), the analysis runs from raw, untrimmed fastq files and performs adapter trimming. If you already have trimmed fastqs, you can switch this config entry to `true` and no additional trimming will be performed (still compatible with nextflex_v3 deduplication and structural RNAs filtering for small RNAs). This can also be used to bypass any trimming step.
-	+ ``aligned_bams``: When ``true`` you can directly provide alignment files for ChIP-seq data (either histone modifications or TF). A single SAM or BAM file must be present in the ``fastq_path`` folder matching the ``seq_id`` value in the metadata samplefile (same logic than when providing raw fastq file locally). No mapping stats plot will be available when providing bam files this way. Default is ``false``.
-	+ Note: These settings are applied to *all* samples in the analysis. If you have some samples to analyze from scratch and other already in an intermediate file, follow the following steps:
-
-		1) run the pipeline once with the samples to run from scratch using the ``map_only`` intermediate target: ``snakemake --cores 1 map_only`` 
-		2) add the samples you already have intermediate files for in the samplefile and change the corresponding parameters in the config file. 
-		3) run the pipeline normally again: ``snakemake --cores 1``.
-
-		These steps can be repeated if you have raw data, trimmed fastqs and bam files, first creating all the fastq files and then the bam files.
-
-- ChIP Mapping Parameters
-
-	+ ``default``: Standard mapping parameters
-	+ ``repeat``: Centromere-specific mapping (more sensitive)
-	+ ``repeatall``: Centromere mapping with relaxed MAPQ
-	+ ``all``: Relaxed mapping parameters
-
-- DMRs parameters
-
-	+ By default, DNA methylation data will be analyzed in all sequence contexts (CG, CHG and CHH, where H = A, T or C). The option for CG-only is under development.
-	+ DMRs are called with the R package `DMRcaller <https://www.bioconductor.org/packages/release/bioc/html/DMRcaller.html>`__ (DOI: 10.18129/B9.bioc.DMRcaller) for CG, CHG and CHH and the following (stringent) parameters:
-
-::
-
-		-CG: method="noise-filter", binSize=200, test="score", pValueThreshold=0.01, minCytosinesCount=5, minProportionDifference=0.3, minGap=200, minSize=50, minReadsPerCytosine=3	
-		-CHG: method="noise_filter", binSize=200, test="score", pValueThreshold=0.01, minCytosinesCount=5, minProportionDifference=0.2, minGap=200, minSize=50, minReadsPerCytosine=3
-		-CHH: method="bins", binSize=200, test="score", pValueThreshold=0.01, minCytosinesCount=5, minProportionDifference=0.1, minGap=200, minSize=50, minReadsPerCytosine=3
-	
-	+ These parameters were selected based on the most optimal results obtained by the authors `[Catoni et al. 2018] <https://academic.oup.com/nar/article/46/19/e114/5050634>`__.
-	+ A deeper analysis is available to try different parameters and methods to call the DMRs. Toggle the ``custom_script_dmrs`` on the ``config/config.yaml`` file to use it, and feel free to edit it as well to try different parameters.
-
-- In-line customization of the parameters
-
-More options can be customized by editing the config file directly, and are relatively self-explanatory. Another option is to add the option to the snakemake command directly with the ``--config`` parameter.
-
-For example:
-``snakemake --cores 1 --config chip_mapping_option="repeatall"`` will override the ChIP-seq mapping option in the config file and instead use the "repeatall" option for ChIP-seq data in the run. Any argument given in line will take precedent over the value in the config file.
+.. _ref-resources-profiles:
 
 Resources and Profiles
 ======================
@@ -339,55 +405,388 @@ Resources and Profiles
 Summary
 -------
 
-Resources are pre-defined based on efficient yet conservative values for optimal time/resources requirements ratio. 
+Resources are pre-defined based on conservative values for optimal
+time/resource requirements. Review and adjust them to your system before
+running:
 
-It is recommended to check that the default values are adapted to your system is recommended. It includes two aspects: 
-   - the rule-specific resources requirements (at the bottom of the ``config/config.yaml`` file)
-   - the profile depending on the cluster manager (e.g. for slurm, in ``profiles/slurm/config.yaml``)
+- Rule-specific resource requirements: in ``profiles/default/config.yaml``
+  (the workflow profile, passed automatically; override with
+  ``epicc run --workflow-profile DIR``)
+- Cluster execution settings: in the profile for your scheduler
+  (e.g. ``profiles/slurm/config.yaml`` for SLURM)
 
-At the moment, the values are adapated to the CSHL cluster.
-
-Rule-specific resources requirements
+Rule-specific resource requirements
 ------------------------------------
 
-Each rule has been assigned a set of system resources based on the computational requirements of the task performed. Feel free to edit each set or the specific rule in the config file if you want to allow more or less resources to be used. Each set has a number of threads to use in parallel, a maximum memory and tmp values (in mb) and a "quality of service" (qos) only used for slurm profiles.
-The number of threads used in total (potentially by multiple rules in parallel) is capped by the number defined by the ``--cores`` parameters or in the profile. The 
+Each rule is bound to a resource tier in the ``set-resources:`` block of
+``profiles/default/config.yaml``, with thread counts under ``set-threads:``.
+A tier defines memory (in MB) and a runtime, for example:
 
-Default sets of allocated resources:
+.. code-block:: yaml
 
-::
+   low_resources: &low
+     mem_mb: 1000
+     runtime: "1h"
 
-	low_resources:
-	  threads: 1
-	  mem_mb: 1000
-	  tmp_mb: 1000
-	  qos: "default"
+   heavy_resources: &heavy
+     mem_mb: 16000
+     runtime: "8h"
 
-	standard_resources:
-	  threads: 4
-	  mem_mb: 2000
-	  tmp_mb: 2000
-	  qos: "default"
+   max_resources: &max
+     mem_mb: 32000
+     runtime: "2d"
 
-	heavy_resources:
-	  threads: 8
-	  mem_mb: 16000
-	  tmp_mb: 48000
-	  qos: "slow_nice"
-  
-	max_resources:
-	  threads: 16
-	  mem_mb: 32000
-	  tmp_mb: 96000
-	  qos: "slow_nice"
-
-	single_thread:
-	  threads: 1
-	  mem_mb: 32000
-	  tmp_mb: 48000
-	  qos: "slow_nice"
+Cluster profiles override these values: ``set-resources:`` and
+``set-threads:`` in a cluster profile take precedence over the workflow
+profile, so site-specific tuning is additive.
 
 Profiles
 --------
 
-If you are running the pipeline on a different platform than CSHL slurm cluster, you will likely need to adjust the config file for your cluster scheduler (`profiles/slurm/config.yaml` for SLURM or create a new profile for your scheduler). It cannot be easily automatized since each scheduler has often their own vocabulary. Ask your cluster IT support for help to set the correct parameters. You might need to install a specific snakemake-executor-plugin based on the type of system you want to deploy the epigenetic button on. Feel free to ask for help or open an issue if needed. 
+The following profiles are included under ``profiles/``:
+
+- ``default/`` — workflow-level per-rule resource and thread defaults (used automatically)
+- ``slurm/`` — SLURM cluster (sbatch) template
+- ``uge/`` — UGE/SGE cluster (qsub) template
+
+Pass the cluster profile via ``epicc run --profile profiles/slurm``. If
+``--profile`` and ``--cores`` are both omitted, ``epicc`` uses
+``profiles/slurm`` when ``sbatch`` is available and otherwise runs locally on
+half of the available cores.
+
+To keep a site profile outside the repository (the usual choice for
+conda-installed copies, and for sharing one profile across projects), install
+a template with ``epicc init-profile``:
+
+.. code-block:: bash
+
+   epicc init-profile slurm my-cluster    # SLURM
+   epicc init-profile uge my-cluster      # UGE/SGE
+
+This copies the template to ``~/.config/snakemake/my-cluster/config.yaml``.
+Edit every line marked ``EDIT:`` (SLURM account, per-rule resource overrides)
+and run with ``--profile my-cluster``. Use ``--force`` to overwrite an existing
+profile. ``epicc`` stops before submitting if an active line of the profile
+still contains an unedited ``<your-...>`` placeholder.
+
+The shipped SLURM profile sets:
+
+- ``jobs: 16`` — number of concurrent cluster jobs
+- ``retries: 1`` — absorbs transient SLURM control-plane glitches and rare
+  port collisions in the pooled-fallback DMR path. Keep ``retries`` at 1 or
+  higher in site profiles derived from it.
+- ``slurm-requeue: true`` — leaves node failures and preemption to SLURM's
+  requeue, so the plugin keeps tracking the job under its original ID. Without
+  it, on a cluster with ``JobRequeue=1``, a ``NODE_FAIL`` is reported as a
+  failure and ``retries`` submits a second copy while SLURM's requeued one
+  runs; the two overwrite each other's outputs. Do not use
+  ``slurm-no-requeue``: a preempted job is then cancelled and the plugin waits
+  on it indefinitely.
+- ``default-resources: runtime="1h"`` — fallback wall time (60 minutes) for a
+  rule that does not declare its own. Rules override it with their own
+  ``runtime``; raise it, or add per-rule overrides under ``set-resources``, if
+  your cluster has tighter limits or longer jobs.
+
+Memory units are in MB. If you need a Quality-of-Service (QoS) setting or other
+site-specific sbatch flags for specific rules, add
+``slurm_extra: "'--qos=<your_qos>'"`` under the relevant rule in
+``set-resources:`` within the profile.
+
+Run ``epicc run`` from a login or development node, not from inside an
+``sbatch`` job. Under an allocation, ``snakemake-executor-plugin-slurm``
+deletes every ``SLURM_*`` environment variable, including ``SLURM_CONF``, and
+on clusters where that variable is the only route to ``slurm.conf`` every
+submitted job then fails with ``srun: fatal: Could not establish a
+configuration source``. If submitting from within a job is unavoidable, restore
+the path with ``precommand: 'export SLURM_CONF=/path/to/slurm.conf'`` in the
+profile. A second, independent cause is
+``snakemake-executor-plugin-slurm-jobstep`` 0.6.1, which strips ``SLURM_CONF``
+inside the job wherever the run was launched; ``config/epicc-env.txt`` pins the
+plugin below that release. To fix an existing environment:
+
+.. code-block:: bash
+
+   conda install -n epicc 'snakemake-executor-plugin-slurm-jobstep<0.6.1'
+
+If conda environment creation fails inside allocations on your cluster, build
+the environments first from the login node (see :ref:`Pre-building
+environments <ref-build-envs>`) and then launch from the login node as well.
+
+For schedulers not covered by the included profiles, copy the closest existing
+profile, adapt it for your site, and install the corresponding Snakemake
+executor plugin (see `executor plugin catalog <https://snakemake.github.io/snakemake-plugin-catalog/index.html>`__).
+
+Temporary files are routed to the project filesystem by default; see
+:ref:`TMPDIR routing <ref-tmpdir-routing>`.
+
+
+Output options
+==============
+
+Default parameters
+------------------
+
+- **Full analysis**:
+  When ``false``, only mapping and bigwig generation occur. When ``true``
+  (default), single-data analyses (peak calling, differential expression, DMRs)
+  and combined analyses (Upset plots, heatmaps, metaplots) are also performed.
+  Change ``full_analysis`` in the options file, or pass
+  ``--full-analysis`` / ``--no-full-analysis``.
+
+- **Limited QC output**:
+  ``QC_option`` controls FastQC reporting. ``"none"`` (default) skips FastQC
+  entirely; ``"all"`` runs FastQC on all raw and trimmed FASTQ files.
+
+- **No Gene Ontology analysis**:
+  GO analysis is OFF by default (``GO: false``) because it requires manually
+  building a database. Set ``GO: true`` (or pass ``--go``) and provide ``gaf_file`` and
+  ``gene_info_file`` for the genome. See
+  :ref:`Help GO <ref-help-go-analysis>` for database construction details. The
+  two input files are provided in the ``data/`` folder for Arabidopsis thaliana
+  (TAIR10 / ColCEN) and Maize B73 (v5). The database is named
+  ``org.<G><species>.eg.db`` (e.g. ``org.Athaliana.eg.db``) and is installed
+  into and loaded from ``genomes/<refgenome>/GO/``, so several references of
+  one species (e.g. ColCEN and TAIR10) do not collide.
+
+- **No TE analysis**:
+  By default, no transposable element analysis is performed
+  (``te_analysis: false``). When ``true``, additional combined-analysis
+  heatmaps and metaplots are generated over the configured ``te_file``
+  annotation in addition to the standard gene-centered plots. Requires
+  ``te_file`` to be set for the corresponding genome. Also
+  ``--te-analysis`` / ``--no-te-analysis``.
+
+- **For ChIP-seq and ATAC-seq**:
+  The default aligner is Bowtie2. Set ``chip_aligner`` / ``atac_aligner`` to
+  ``"chromap"`` (or pass ``--chip-aligner`` / ``--atac-aligner``) for ~10x
+  faster mapping. Chromap is recommended for SE-only datasets: on PE data only
+  11-28% of reads are properly paired with Chromap versus 99%+ with Bowtie2,
+  because Chromap maps the two ends independently and one mate is
+  MAPQ-filtered when repeat paralogs are present. With the ``repeat`` or
+  ``repeatall`` mapping strategy, Bowtie2 is used automatically regardless of
+  the aligner setting. Mapping strategy options are available via
+  ``chip_mapping_strategy`` (see `ChIP Mapping Parameters`_ below).
+
+- **For RNA-seq**:
+  Duplicate reads are not removed from mRNA-seq (``rna_deduplicate: false``):
+  without UMIs, PCR and optical duplicates cannot be told apart from genuine
+  high-expression reads, so deduplicating biases quantification. UMI-aware
+  deduplication is not implemented. RAMPAGE is always deduplicated.
+  Toggle with ``--rna-deduplicate`` / ``--no-rna-deduplicate``.
+
+- **For sRNA-seq**:
+  The default is not NextFlex v3 library preparation. If your data was made
+  with this kit, an additional deduplication and trimming step is required.
+  Set ``nextflex_v3_deduplication: true`` in the options file. This setting
+  applies to all samples, so if you have a mix of library preparations, run the
+  pipeline with each kind separately and then rerun with all the samples you
+  want to analyze together.
+
+  The default (``structural_rna_depletion: true``) is to filter structural RNAs
+  (rRNAs, tRNAs, snoRNAs) before ShortStack analysis, which is recommended for
+  microRNA and small interfering RNA analysis. When ``structural_rna_fafile``
+  is not set for the genome, the FASTA file is derived automatically with
+  Infernal and Rfam (``infernal_threshold``: ``"ga"``, the Rfam gathering
+  threshold, by default, or a numeric E-value such as ``1e-5`` for more
+  aggressive filtering). To supply your own file, see
+  :ref:`Help RFAM <ref-help-structural-rna>`. A pre-built file for Maize is
+  available in the ``data/`` folder. Set ``structural_rna_depletion: false``
+  to skip the step.
+
+  The default is to only perform *de novo* microRNA identification
+  (``--dn_mirna`` argument in ShortStack). To also annotate known microRNAs,
+  download the FASTA file from `miRbase <https://www.mirbase.org>`__, filter
+  it for your species, and add ``--known_miRNAs <path/to/known_miRNA_file.fa>``
+  to the ``srna_mapping_params`` entry in the options file.
+
+
+Configuration Options
+---------------------
+
+Main output options
+^^^^^^^^^^^^^^^^^^^
+
+- ``full_analysis``: When ``false``, only mapping and bigwigs are produced.
+  When ``true`` (default), single-data and combined analyses are also run.
+
+- ``te_analysis``: When ``true``, generates additional heatmaps and metaplots
+  over the ``te_file`` annotation. The feature name (4th column of BED, or
+  ``ID=`` attribute for GFF3) must be unique. Default is ``false``.
+
+- ``QC_option``: Controls FastQC reporting. ``"none"`` (default) skips FastQC;
+  ``"all"`` runs FastQC on raw and trimmed FASTQs.
+
+- ``plot_allreps``: When ``true``, all individual replicates are shown on
+  heatmaps, metaplots, and browser shots. When ``false`` (default), each
+  sample is represented by its merged replicates track.
+
+- ``keep_intermediates``: Intermediate file retention after downstream rules
+  finish (also ``epicc run --keep-intermediates TIER``):
+
+  - ``standard`` (default): keeps per-replicate final BAMs; removes trimmed
+    FASTQs, merged BAMs, and shifted BAMs.
+  - ``none``: removes all intermediates, including final BAMs (most aggressive).
+  - ``all``: keeps everything (most disk usage).
+  - ``custom``: uses the per-category switches ``keep_trimmed_fastqs``,
+    ``keep_final_bams``, ``keep_merged_bams``, ``keep_shifted_bams`` (ATAC
+    Tn5-shifted BAMs), ``keep_cx_reports`` (per-replicate CX methylation
+    reports; keep them if you pass per-replicate data to DMRcaller), and
+    ``keep_dmc_intermediates`` (dmC aligned modBAMs and bedMethyl pileups).
+
+- ``use_node_tmpdir``: Default ``false``. See
+  :ref:`TMPDIR routing <ref-tmpdir-routing>`.
+
+Intermediate input formats
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- ``trimmed_fastqs``: When ``false`` (default), trimming is performed from
+  raw FASTQs. Set to ``true`` if pre-trimmed FASTQs are provided.
+
+- ``aligned_bams``: When ``true``, the pipeline expects pre-aligned BAM/SAM
+  files in the ``Read_files`` column of the sample sheet rather than FASTQs.
+  Currently supported for ChIP-seq assays only. No mapping-stats plot is
+  available in this mode. Default is ``false``.
+
+  These settings apply to *all* samples in the analysis. If you have a mix of
+  raw data and intermediate files, run the pipeline in stages:
+
+  1. Run once for the samples starting from raw data (optionally with
+     ``full_analysis: false`` for less output).
+  2. Add the samples with existing intermediate files to the sample sheet and
+     update the corresponding options.
+  3. Run normally again.
+
+ChIP Mapping Parameters
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Set via ``chip_mapping_strategy`` in the options file or
+``--chip-mapping-strategy`` (``atac_mapping_strategy`` /
+``--atac-mapping-strategy`` for ATAC-seq):
+
+- ``default``: Standard mapping parameters
+- ``repeat``: Centromere-specific mapping (more sensitive; forces Bowtie2 regardless of ``chip_aligner``)
+- ``repeatall``: Centromere mapping with relaxed MAPQ (forces Bowtie2)
+- ``all``: Relaxed mapping parameters
+
+DMRs parameters
+^^^^^^^^^^^^^^^
+
+DNA methylation data is analyzed per context. The active contexts are
+controlled by ``methylation_contexts`` (default: ``["CG", "CHG", "CHH"]``, or
+``--methylation-contexts CG,CHG,CHH``). This option gates per-context
+bigwigs, DMR calls, and PCA plots.
+
+For animal genomes where non-CpG methylation is negligible, set:
+
+.. code-block:: yaml
+
+   methylation_contexts: ["CG"]
+
+to skip empty CHG/CHH outputs. Subcontexts (CAG, CAA, etc.) are not yet
+supported.
+
+Two DMR callers are available for Bismark-aligned samples, selected with
+``dmr_caller`` (or ``--dmr-caller``):
+
+- ``metilene`` (default): C++ binary segmentation, multi-threaded and
+  significantly faster than DMRcaller on high-coverage replicate data.
+- ``dmrcaller``: R/Bioconductor
+  `DMRcaller <https://www.bioconductor.org/packages/release/bioc/html/DMRcaller.html>`__
+  (DOI: 10.18129/B9.bioc.DMRcaller), using ``computeDMRsReplicates`` with beta
+  regression and replicate variance. Slower on real data; use it when you want
+  the beta-regression model. Pair-context jobs run serially (one chromosome
+  at a time), so high-coverage multi-replicate pairs can take 1-4 hours.
+
+dmC samples use ``dmc_dmr_method`` (default ``"dmrcaller"``; ``"modkit"`` is
+experimental and only valid for dmC versus dmC comparisons) regardless of
+``dmr_caller``.
+
+Thresholds are set in the ``dmr_thresholds:`` block. Defaults are tuned for
+Arabidopsis leaves (`Catoni et al. 2018
+<https://academic.oup.com/nar/article/46/19/e114/5050634>`__); methylation
+varies widely across species and tissues (e.g. maize CHH is very low; pollen
+differs from leaf), so adjust as needed. Omit a key to use its default.
+
+.. code-block:: yaml
+
+   dmr_thresholds:
+     min_diff:       {CG: 0.3, CHG: 0.2, CHH: 0.1}  # min mean methylation difference
+     sigma_n:        3.0    # multiplier for min_diff: "auto"
+     min_cytosines:  5      # min CpG/cytosine count per DMR window (both callers)
+     q_value:        0.01   # FDR q-value cutoff (both callers)
+     min_size:       50     # min DMR length in bp (both callers)
+     bin_size:       200    # DMRcaller: window size (bp)
+     min_gap:        200    # DMRcaller: min gap between DMRs (bp)
+     min_reads:      3      # DMRcaller: min reads per cytosine
+     maxdist:        300    # metilene: max distance between CpGs in a segment, nt (-M)
+     valley:         {CG: 0.7, CHG: 0.7, CHH: 0.3}  # metilene: valley filter (-v)
+     maxseg:         {CG: -1, CHG: -1, CHH: 10000}  # metilene: max segment cap in CpGs (-G; -1 = no cap)
+
+``min_diff``, ``min_cytosines``, ``q_value`` and ``min_size`` apply to both
+callers; ``bin_size``, ``min_gap`` and ``min_reads`` are DMRcaller-only, and
+``maxdist``, ``valley`` and ``maxseg`` are metilene-only. Each caller ignores
+the other's keys. ``q_value`` is applied to DMRcaller's BH-adjusted p-value and
+to metilene's q-value column. For metilene, ``min_size`` is applied after
+calling as ``(end - start) >= min_size``.
+
+To estimate ``min_diff`` from the data instead, set ``min_diff: "auto"``
+(string). For each comparison pair and context, a calibration step first
+computes ``sigma_n`` x σ, where σ is the standard deviation of the
+per-position between-group methylation difference. The threshold scales with
+baseline methylation (CG is highly methylated, so a higher threshold; CHH is
+near zero, so a lower one) and is floored at 0.05. Tune ``sigma_n`` (default
+3.0) to tighten or relax sensitivity. ``auto`` is recommended outside
+Arabidopsis leaf tissue.
+
+Each threshold has a command-line override:
+
+.. code-block:: bash
+
+   epicc run --samples my_samples.tsv --dmr-caller metilene \
+     --dmr-min-diff CG=0.3,CHG=0.2,CHH=0.1 --dmr-min-cytosines 5 --dmr-q-value 0.01
+
+``--dmr-min-diff`` accepts ``auto``, a single value applied to all contexts
+(e.g. ``0.2``), or per-context values. ``--dmr-sigma-n`` sets ``sigma_n``.
+
+A custom parameter sweep mode is available. Toggle ``custom_script_dmrs: true``
+in the options file to use it (``workflow/scripts/R_call_DMRs_custom.R``; slower
+and more resource intensive).
+
+Peak calling
+^^^^^^^^^^^^
+
+ChIP peaks are called with MACS2; ``chip_callpeaks.params`` (default
+``--keep-dup all --nomodel``, or ``--chip-callpeaks-params``) sets its
+parameters, and ``chip_callpeaks.peaktype`` maps IP targets to a default peak
+type. CUT&RUN and CUT&Tag use peak-shape-aware defaults: epic2 for ``broad``
+and SEACR for ``narrow``, with MACS2 as a fallback for either. Choose with
+``cut_callpeaks.broad_caller`` (``epic2``, ``seacr``, ``macs2``) and
+``cut_callpeaks.narrow_caller`` (``seacr``, ``macs2``), or
+``--cut-broad-caller`` / ``--cut-narrow-caller``. ``cut_callpeaks`` also holds
+the per-caller parameters (``epic2_params``, ``seacr_norm``,
+``seacr_threshold``, ``macs2_params_pe``, ``macs2_params_se``); set
+``seacr_norm`` to ``"non"`` when an IgG control is supplied.
+
+In-line customization
+^^^^^^^^^^^^^^^^^^^^^
+
+.. _ref-named-overrides:
+
+Commonly tuned options have named ``epicc run`` / ``epicc validate`` flags that
+override the options file: ``--chip-aligner``, ``--atac-aligner``,
+``--chip-mapping-strategy``, ``--atac-mapping-strategy``,
+``--[no-]full-analysis``, ``--[no-]te-analysis``, ``--[no-]go``,
+``--[no-]rna-deduplicate``, ``--methylation-contexts``, ``--dmr-caller``,
+``--dmr-min-diff``, ``--dmr-min-cytosines``, ``--dmr-q-value``,
+``--dmr-sigma-n``, ``--chip-callpeaks-params``, ``--cut-broad-caller`` and
+``--cut-narrow-caller``. Nested settings (``dmr_thresholds.*``,
+``chip_callpeaks.params``, ``cut_callpeaks.*``) are applied through a temporary
+merged config file, so sibling keys not given on the command line keep the
+values from the options file.
+
+Any other configuration option can be overridden by passing it after ``--`` to
+``epicc run``, using Snakemake's ``--config`` flag:
+
+.. code-block:: bash
+
+   epicc run --samples config/my_samples.tsv -- --config chip_mapping_strategy="repeatall"
